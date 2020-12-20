@@ -4,11 +4,10 @@ import (
 	"bufio"
 	"fmt"
 	"github.com/jessevdk/go-flags"
-	log "github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 	"os"
 	"os/signal"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"syscall"
 	"unicode"
@@ -21,14 +20,11 @@ type Options struct {
 	EnvFile       string `long:"env-file" description:"the environment file"`
 }
 
+var log *zap.SugaredLogger
+
 func init() {
-	log.SetOutput(os.Stdout)
-	if runtime.GOOS == "windows" {
-		log.SetFormatter(&log.TextFormatter{DisableColors: true, FullTimestamp: true})
-	} else {
-		log.SetFormatter(&log.TextFormatter{DisableColors: false, FullTimestamp: true})
-	}
-	log.SetLevel(log.DebugLevel)
+	l, _ := zap.NewProduction()
+	log = l.Sugar()
 }
 
 func initSignals(s *Supervisor) {
@@ -36,7 +32,7 @@ func initSignals(s *Supervisor) {
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		sig := <-sigs
-		log.WithFields(log.Fields{"signal": sig}).Info("receive a signal to stop all process & exit")
+		log.Infow("receive a signal to stop all process & exit", "signal", sig)
 		s.procMgr.StopAllProcesses()
 		os.Exit(-1)
 	}()
@@ -53,7 +49,7 @@ func loadEnvFile() {
 	//try to open the environment file
 	f, err := os.Open(options.EnvFile)
 	if err != nil {
-		log.WithFields(log.Fields{"file": options.EnvFile}).Error("Fail to open environment file")
+		log.Error("Fail to open environment file", "file", options.EnvFile)
 		return
 	}
 	defer f.Close()
@@ -144,7 +140,7 @@ func main() {
 				os.Exit(0)
 			case flags.ErrCommandRequired:
 				if options.Daemon {
-					Deamonize(runServer)
+					Deamonize(runServer, log)
 				} else {
 					runServer()
 				}

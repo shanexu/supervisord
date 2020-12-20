@@ -4,11 +4,12 @@ package main
 
 import (
 	daemon "github.com/ochinchina/go-daemon"
-	log "github.com/sirupsen/logrus"
+
+	"github.com/ochinchina/supervisord/log"
 )
 
 // Deamonize run this process in daemon mode
-func Deamonize(proc func()) {
+func Deamonize(proc func(), log log.Log) {
 	context := daemon.Context{LogFileName: "/dev/stdout"}
 
 	child, err := context.Reborn()
@@ -16,7 +17,7 @@ func Deamonize(proc func()) {
 		context := daemon.Context{}
 		child, err = context.Reborn()
 		if err != nil {
-			log.WithFields(log.Fields{"err": err}).Fatal("Unable to run")
+			log.Fatalw("Unable to run", "error", err)
 		}
 	}
 	if child != nil {
