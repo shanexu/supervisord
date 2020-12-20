@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"fmt"
+	"go.uber.org/zap"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -10,8 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	ini "github.com/ochinchina/go-ini"
-	log "github.com/sirupsen/logrus"
+	"github.com/ochinchina/go-ini"
 )
 
 // Entry standards for a configuration section in supervisor configuration file
@@ -122,12 +122,12 @@ func (c *Config) createEntry(name string, configDir string) *Entry {
 func (c *Config) Load() ([]string, error) {
 	ini := ini.NewIni()
 	c.ProgramGroup = NewProcessGroup()
-	log.WithFields(log.Fields{"file": c.configFile}).Info("load configuration from file")
+	zap.S().Infow("load configuration from file", "file", c.configFile)
 	ini.LoadFile(c.configFile)
 
 	includeFiles := c.getIncludeFiles(ini)
 	for _, f := range includeFiles {
-		log.WithFields(log.Fields{"file": f}).Info("load configuration from file")
+		zap.S().Info("load configuration from file", "file", f)
 		ini.LoadFile(f)
 	}
 	return c.parse(ini), nil
@@ -408,11 +408,10 @@ func (c *Entry) GetString(key string, defValue string) string {
 		if err == nil {
 			return repS
 		}
-		log.WithFields(log.Fields{
-			log.ErrorKey: err,
-			"program":    c.GetProgramName(),
-			"key":        key,
-		}).Warn("Unable to parse expression")
+		zap.S().Warnw("Unable to parse expression",
+			"error", err,
+			"program", c.GetProgramName(),
+			"key", key)
 	}
 	return defValue
 }
@@ -435,11 +434,10 @@ func (c *Entry) GetStringExpression(key string, defValue string) string {
 		"host_node_name", hostName).Eval(s)
 
 	if err != nil {
-		log.WithFields(log.Fields{
-			log.ErrorKey: err,
-			"program":    c.GetProgramName(),
-			"key":        key,
-		}).Warn("unable to parse expression")
+		zap.S().Warnw("unable to parse expression",
+			"error", err,
+			"program", c.GetProgramName(),
+			"key", key)
 		return s
 	}
 
@@ -537,10 +535,9 @@ func (c *Config) parseProgram(cfg *ini.Ini) []string {
 			procName, err := section.GetValue("process_name")
 			if numProcs > 1 {
 				if err != nil || strings.Index(procName, "%(process_num)") == -1 {
-					log.WithFields(log.Fields{
-						"numprocs":     numProcs,
-						"process_name": procName,
-					}).Error("no process_num in process name")
+					zap.S().Errorw("no process_num in process name",
+						"numprocs", numProcs,
+						"process_name", procName)
 				}
 			}
 			originalProcName := programName
@@ -563,20 +560,18 @@ func (c *Config) parseProgram(cfg *ini.Ini) []string {
 				}
 				cmd, err := envs.Eval(originalCmd)
 				if err != nil {
-					log.WithFields(log.Fields{
-						log.ErrorKey: err,
-						"program":    programName,
-					}).Error("get envs failed")
+					zap.S().Errorw("get envs failed",
+						"error", err,
+						"program", programName)
 					continue
 				}
 				section.Add("command", cmd)
 
 				procName, err := envs.Eval(originalProcName)
 				if err != nil {
-					log.WithFields(log.Fields{
-						log.ErrorKey: err,
-						"program":    programName,
-					}).Error("get envs failed")
+					zap.S().Errorw("get envs failed",
+						"error", err,
+						"program", programName)
 					continue
 				}
 

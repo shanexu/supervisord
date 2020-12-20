@@ -2,6 +2,7 @@ package process
 
 import (
 	"fmt"
+	"go.uber.org/zap"
 	"io"
 	"os"
 	"os/exec"
@@ -21,7 +22,6 @@ import (
 	"github.com/ochinchina/supervisord/logger"
 	"github.com/ochinchina/supervisord/signals"
 	"github.com/robfig/cron/v3"
-	log "github.com/sirupsen/logrus"
 )
 
 // State the state of process
@@ -123,9 +123,9 @@ func (p *Process) addToCron() {
 	s := p.config.GetString("cron", "")
 
 	if s != "" {
-		log.WithFields(log.Fields{"program": p.GetName()}).Info("try to create cron program with cron expression:", s)
+		zap.S().Infow("try to create cron program with cron expression", "expression", s, "program", p.GetName())
 		scheduler.AddFunc(s, func() {
-			log.WithFields(log.Fields{"program": p.GetName()}).Info("start cron program")
+			zap.S().Infow("start cron program", "program", p.GetName())
 			if !p.isRunning() {
 				p.Start(false)
 			}
@@ -138,10 +138,10 @@ func (p *Process) addToCron() {
 // Args:
 //  wait - true, wait the program started or failed
 func (p *Process) Start(wait bool) {
-	log.WithFields(log.Fields{"program": p.GetName()}).Info("try to start program")
+	zap.S().Infow("try to start program", "program", p.GetName())
 	p.lock.Lock()
 	if p.inStart {
-		log.WithFields(log.Fields{"program": p.GetName()}).Info("Don't start program again, program is already started")
+		zap.S().Infow("Don't start program again, program is already started", "program", p.GetName())
 		p.lock.Unlock()
 		return
 	}
@@ -171,11 +171,11 @@ func (p *Process) Start(wait bool) {
 				time.Sleep(5 * time.Second)
 			}
 			if p.stopByUser {
-				log.WithFields(log.Fields{"program": p.GetName()}).Info("Stopped by user, don't start it again")
+				zap.S().Infow("Stopped by user, don't start it again", "program", p.GetName())
 				break
 			}
 			if !p.isAutoRestart() {
-				log.WithFields(log.Fields{"program": p.GetName()}).Info("Don't start the stopped program because its autorestart flag is false")
+				zap.S().Infow("Don't start the stopped program because its autorestart flag is false", "program", p.GetName())
 				break
 			}
 		}
@@ -413,7 +413,7 @@ func (p *Process) createProgramCommand() error {
 	}
 	p.cmd.SysProcAttr = &syscall.SysProcAttr{}
 	if p.setUser() != nil {
-		log.WithFields(log.Fields{"user": p.config.GetString("user", "")}).Error("fail to run as user")
+		zap.S().Errorw("fail to run as user", "user", p.config.GetString("user", ""))
 		return fmt.Errorf("fail to set user")
 	}
 	p.setProgramRestartChangeMonitor(args[0])
@@ -434,7 +434,7 @@ func (p *Process) setProgramRestartChangeMonitor(programPath string) {
 			absPath = programPath
 		}
 		AddProgramChangeMonitor(absPath, func(path string, mode filechangemonitor.FileChangeMode) {
-			log.WithFields(log.Fields{"program": p.GetName()}).Info("program is changed, resatrt it")
+			zap.S().Infow("program is changed, restart it", "program", p.GetName())
 			p.Stop(true)
 			p.Start(true)
 		})
@@ -449,7 +449,7 @@ func (p *Process) setProgramRestartChangeMonitor(programPath string) {
 		AddConfigChangeMonitor(absDir, filePattern, func(path string, mode filechangemonitor.FileChangeMode) {
 			//fmt.Printf( "filePattern=%s, base=%s\n", filePattern, filepath.Base( path ) )
 			//if matched, err := filepath.Match( filePattern, filepath.Base( path ) ); matched && err == nil {
-			log.WithFields(log.Fields{"program": p.GetName()}).Info("configure file for program is changed, resatrt it")
+			zap.S().Infow("configure file for program is changed, restart it", "program", p.GetName())
 			p.Stop(true)
 			p.Start(true)
 			//}
@@ -462,9 +462,9 @@ func (p *Process) setProgramRestartChangeMonitor(programPath string) {
 func (p *Process) waitForExit(startSecs int64) {
 	p.cmd.Wait()
 	if p.cmd.ProcessState != nil {
-		log.WithFields(log.Fields{"program": p.GetName()}).Infof("program stopped with status:%v", p.cmd.ProcessState)
+		zap.S().Infow(fmt.Sprintf("program stopped with status:%v", p.cmd.ProcessState), "program", p.GetName())
 	} else {
-		log.WithFields(log.Fields{"program": p.GetName()}).Info("program stopped")
+		zap.S().Infow("program stopped", "program", p.GetName())
 	}
 	p.lock.Lock()
 	defer p.lock.Unlock()
@@ -475,7 +475,7 @@ func (p *Process) waitForExit(startSecs int64) {
 
 // fail to start the program
 func (p *Process) failToStartProgram(reason string, finishCb func()) {
-	log.WithFields(log.Fields{"program": p.GetName()}).Errorf(reason)
+	zap.S().Errorw(reason, "program", p.GetName())
 	p.changeStateTo(Fatal)
 	finishCb()
 }
@@ -493,7 +493,7 @@ func (p *Process) monitorProgramIsRunning(endTime time.Time, monitorExited *int3
 	defer p.lock.Unlock()
 	// if the program does not exit
 	if atomic.LoadInt32(programExited) == 0 && p.state == Starting {
-		log.WithFields(log.Fields{"program": p.GetName()}).Info("success to start program")
+		zap.S().Infow("success to start program", "program", p.GetName())
 		p.changeStateTo(Running)
 	}
 }
@@ -504,7 +504,7 @@ func (p *Process) run(finishCb func()) {
 
 	// check if the program is in running state
 	if p.isRunning() {
-		log.WithFields(log.Fields{"program": p.GetName()}).Info("Don't start program because it is running")
+		zap.S().Infow("Don't start program because it is running", "program", p.GetName())
 		finishCb()
 		return
 
@@ -524,7 +524,7 @@ func (p *Process) run(finishCb func()) {
 		if restartPause > 0 && atomic.LoadInt32(p.retryTimes) != 0 {
 			//pause
 			p.lock.Unlock()
-			log.WithFields(log.Fields{"program": p.GetName()}).Info("don't restart the program, start it after ", restartPause, " seconds")
+			zap.S().Infow(fmt.Sprintf("don't restart the program, start it after %d  seconds", restartPause), "program", p.GetName())
 			time.Sleep(time.Duration(restartPause) * time.Second)
 			p.lock.Lock()
 		}
@@ -545,7 +545,7 @@ func (p *Process) run(finishCb func()) {
 				p.failToStartProgram(fmt.Sprintf("fail to start program with error:%v", err), finishCbWrapper)
 				break
 			} else {
-				log.WithFields(log.Fields{"program": p.GetName()}).Info("fail to start program with error:", err)
+				zap.S().Infow("fail to start program with error", "error", err, "program", p.GetName())
 				p.changeStateTo(Backoff)
 				continue
 			}
@@ -562,7 +562,7 @@ func (p *Process) run(finishCb func()) {
 		//Set startsec to 0 to indicate that the program needn't stay
 		//running for any particular amount of time.
 		if startSecs <= 0 {
-			log.WithFields(log.Fields{"program": p.GetName()}).Info("success to start program")
+			zap.S().Infow("success to start program", "program", p.GetName())
 			p.changeStateTo(Running)
 			go finishCbWrapper()
 		} else {
@@ -571,7 +571,7 @@ func (p *Process) run(finishCb func()) {
 				finishCbWrapper()
 			}()
 		}
-		log.WithFields(log.Fields{"program": p.GetName()}).Debug("wait program exit")
+		zap.S().Debugw("wait program exit", "program", p.GetName())
 		p.lock.Unlock()
 		p.waitForExit(startSecs)
 
@@ -586,7 +586,7 @@ func (p *Process) run(finishCb func()) {
 		// if the program still in running after startSecs
 		if p.state == Running {
 			p.changeStateTo(Exited)
-			log.WithFields(log.Fields{"program": p.GetName()}).Info("program exited")
+			zap.S().Infow("program exited", "program", p.GetName())
 			break
 		} else {
 			p.changeStateTo(Backoff)
@@ -684,7 +684,7 @@ func (p *Process) setLog() {
 			p.createStdoutLogEventEmitter())
 		captureBytes := p.config.GetBytes("stdout_capture_maxbytes", 0)
 		if captureBytes > 0 {
-			log.WithFields(log.Fields{"program": p.config.GetProgramName()}).Info("capture stdout process communication")
+			zap.S().Infow("capture stdout process communication", "program", p.config.GetProgramName())
 			p.StdoutLog = logger.NewLogCaptureLogger(p.StdoutLog,
 				captureBytes,
 				"PROCESS_COMMUNICATION_STDOUT",
@@ -706,7 +706,7 @@ func (p *Process) setLog() {
 		captureBytes = p.config.GetBytes("stderr_capture_maxbytes", 0)
 
 		if captureBytes > 0 {
-			log.WithFields(log.Fields{"program": p.config.GetProgramName()}).Info("capture stderr process communication")
+			zap.S().Infow("capture stderr process communication", "program", p.config.GetProgramName())
 			p.StderrLog = logger.NewLogCaptureLogger(p.StdoutLog,
 				captureBytes,
 				"PROCESS_COMMUNICATION_STDERR",
@@ -719,12 +719,12 @@ func (p *Process) setLog() {
 	} else if p.config.IsEventListener() {
 		in, err := p.cmd.StdoutPipe()
 		if err != nil {
-			log.WithFields(log.Fields{"eventListener": p.config.GetEventListenerName()}).Error("fail to get stdin")
+			zap.S().Errorw("fail to get stdin", "eventListener", p.config.GetEventListenerName())
 			return
 		}
 		out, err := p.cmd.StdinPipe()
 		if err != nil {
-			log.WithFields(log.Fields{"eventListener": p.config.GetEventListenerName()}).Error("fail to get stdout")
+			zap.S().Errorw("fail to get stdout", "eventListener", p.config.GetEventListenerName())
 			return
 		}
 		events := strings.Split(p.config.GetString("events", ""), ",")
@@ -824,16 +824,16 @@ func (p *Process) Stop(wait bool) {
 	isRunning := p.isRunning()
 	p.lock.Unlock()
 	if !isRunning {
-		log.WithFields(log.Fields{"program": p.GetName()}).Info("program is not running")
+		zap.S().Infow("program is not running", "program", p.GetName())
 		return
 	}
-	log.WithFields(log.Fields{"program": p.GetName()}).Info("stop the program")
+	zap.S().Infow("stop the program", "program", p.GetName())
 	sigs := strings.Fields(p.config.GetString("stopsignal", ""))
 	waitsecs := time.Duration(p.config.GetInt("stopwaitsecs", 10)) * time.Second
 	stopasgroup := p.config.GetBool("stopasgroup", false)
 	killasgroup := p.config.GetBool("killasgroup", stopasgroup)
 	if stopasgroup && !killasgroup {
-		log.WithFields(log.Fields{"program": p.GetName()}).Error("Cannot set stopasgroup=true and killasgroup=false")
+		zap.S().Errorw("Cannot set stopasgroup=true and killasgroup=false", "program", p.GetName())
 	}
 
 	var stopped int32 = 0
@@ -844,7 +844,7 @@ func (p *Process) Stop(wait bool) {
 			if err != nil {
 				continue
 			}
-			log.WithFields(log.Fields{"program": p.GetName(), "signal": sigs[i]}).Info("send stop signal to program")
+			zap.S().Infow("send stop signal to program", "program", p.GetName(), "signal", sigs[i])
 			p.Signal(sig, stopasgroup)
 			endTime := time.Now().Add(waitsecs)
 			//wait at most "stopwaitsecs" seconds for one signal
@@ -858,7 +858,7 @@ func (p *Process) Stop(wait bool) {
 			}
 		}
 		if atomic.LoadInt32(&stopped) == 0 {
-			log.WithFields(log.Fields{"program": p.GetName()}).Info("force to kill the program")
+			zap.S().Infow("force to kill the program", "program", p.GetName())
 			p.Signal(syscall.SIGKILL, killasgroup)
 			atomic.StoreInt32(&stopped, 1)
 		}

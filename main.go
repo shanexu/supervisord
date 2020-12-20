@@ -20,11 +20,9 @@ type Options struct {
 	EnvFile       string `long:"env-file" description:"the environment file"`
 }
 
-var log *zap.SugaredLogger
-
 func init() {
-	l, _ := zap.NewProduction()
-	log = l.Sugar()
+	l, _ := zap.NewDevelopment()
+	zap.ReplaceGlobals(l)
 }
 
 func initSignals(s *Supervisor) {
@@ -32,7 +30,7 @@ func initSignals(s *Supervisor) {
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		sig := <-sigs
-		log.Infow("receive a signal to stop all process & exit", "signal", sig)
+		zap.S().Infow("receive a signal to stop all process & exit", "signal", sig)
 		s.procMgr.StopAllProcesses()
 		os.Exit(-1)
 	}()
@@ -49,7 +47,7 @@ func loadEnvFile() {
 	//try to open the environment file
 	f, err := os.Open(options.EnvFile)
 	if err != nil {
-		log.Error("Fail to open environment file", "file", options.EnvFile)
+		zap.S().Error("Fail to open environment file", "file", options.EnvFile)
 		return
 	}
 	defer f.Close()
@@ -140,7 +138,7 @@ func main() {
 				os.Exit(0)
 			case flags.ErrCommandRequired:
 				if options.Daemon {
-					Deamonize(runServer, log)
+					Deamonize(runServer)
 				} else {
 					runServer()
 				}

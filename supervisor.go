@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"net/http"
 	"os"
 	"strings"
@@ -16,8 +18,6 @@ import (
 	"github.com/ochinchina/supervisord/signals"
 	"github.com/ochinchina/supervisord/types"
 	"github.com/ochinchina/supervisord/util"
-
-	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -135,7 +135,7 @@ func (s *Supervisor) GetState(r *http.Request, args *struct{}, reply *struct{ St
 	// 1            RUNNING
 	// 0            RESTARTING
 	// -1           SHUTDOWN
-	log.Debug("Get state")
+	zap.S().Debug("Get state")
 	reply.StateInfo.Statecode = 1
 	reply.StateInfo.Statename = "RUNNING"
 	return nil
@@ -171,7 +171,7 @@ func (s *Supervisor) ClearLog(r *http.Request, args *struct{}, reply *struct{ Re
 // Shutdown shutdown the supervisor
 func (s *Supervisor) Shutdown(r *http.Request, args *struct{}, reply *struct{ Ret bool }) error {
 	reply.Ret = true
-	log.Info("received rpc request to stop all processes & exit")
+	zap.S().Info("received rpc request to stop all processes & exit")
 	s.procMgr.StopAllProcesses()
 	go func() {
 		time.Sleep(1 * time.Second)
@@ -182,7 +182,7 @@ func (s *Supervisor) Shutdown(r *http.Request, args *struct{}, reply *struct{ Re
 
 // Restart restart the supervisor
 func (s *Supervisor) Restart(r *http.Request, args *struct{}, reply *struct{ Ret bool }) error {
-	log.Info("Receive instruction to restart")
+	zap.S().Info("Receive instruction to restart")
 	s.restarting = true
 	reply.Ret = true
 	return nil
@@ -224,7 +224,7 @@ func (s *Supervisor) GetAllProcessInfo(r *http.Request, args *struct{}, reply *s
 
 // GetProcessInfo get the process information of one program
 func (s *Supervisor) GetProcessInfo(r *http.Request, args *struct{ Name string }, reply *struct{ ProcInfo types.ProcessInfo }) error {
-	log.Info("Get process info of: ", args.Name)
+	zap.S().Info("Get process info of: ", args.Name)
 	proc := s.procMgr.Find(args.Name)
 	if proc == nil {
 		return fmt.Errorf("no process named %s", args.Name)
@@ -276,7 +276,7 @@ func (s *Supervisor) StartAllProcesses(r *http.Request, args *struct {
 
 // StartProcessGroup start all the processes in one group
 func (s *Supervisor) StartProcessGroup(r *http.Request, args *StartProcessArgs, reply *struct{ AllProcessInfo []types.ProcessInfo }) error {
-	log.WithFields(log.Fields{"group": args.Name}).Info("start process group")
+	zap.S().Infow("start process group", "group", args.Name)
 	finishedProcCh := make(chan *process.Process)
 
 	n := s.procMgr.AsyncForEachProcess(func(proc *process.Process) {
@@ -297,7 +297,7 @@ func (s *Supervisor) StartProcessGroup(r *http.Request, args *StartProcessArgs, 
 
 // StopProcess stop given program
 func (s *Supervisor) StopProcess(r *http.Request, args *StartProcessArgs, reply *struct{ Success bool }) error {
-	log.WithFields(log.Fields{"program": args.Name}).Info("stop process")
+	zap.S().Infow("stop process", "program", args.Name)
 	procs := s.procMgr.FindMatch(args.Name)
 	if len(procs) <= 0 {
 		return fmt.Errorf("fail to find process %s", args.Name)
@@ -311,7 +311,7 @@ func (s *Supervisor) StopProcess(r *http.Request, args *StartProcessArgs, reply 
 
 // StopProcessGroup stop all processes in one group
 func (s *Supervisor) StopProcessGroup(r *http.Request, args *StartProcessArgs, reply *struct{ AllProcessInfo []types.ProcessInfo }) error {
-	log.WithFields(log.Fields{"group": args.Name}).Info("stop process group")
+	zap.S().Infow("stop process group", "group", args.Name)
 	finishedProcCh := make(chan *process.Process)
 	n := s.procMgr.AsyncForEachProcess(func(proc *process.Process) {
 		if proc.GetGroup() == args.Name {
@@ -407,11 +407,11 @@ func (s *Supervisor) SignalAllProcesses(r *http.Request, args *types.ProcessSign
 func (s *Supervisor) SendProcessStdin(r *http.Request, args *ProcessStdin, reply *struct{ Success bool }) error {
 	proc := s.procMgr.Find(args.Name)
 	if proc == nil {
-		log.WithFields(log.Fields{"program": args.Name}).Error("program does not exist")
+		zap.S().Errorw("program does not exist", "program", args.Name)
 		return fmt.Errorf("NOT_RUNNING")
 	}
 	if proc.GetState() != process.Running {
-		log.WithFields(log.Fields{"program": args.Name}).Error("program does not run")
+		zap.S().Errorw("program does not run", "program", args.Name)
 		return fmt.Errorf("NOT_RUNNING")
 	}
 	err := proc.SendProcessStdin(args.Chars)
@@ -441,7 +441,7 @@ func (s *Supervisor) Reload() (addedGroup []string, changedGroup []string, remov
 	loadedPrograms, err := s.config.Load()
 
 	if checkErr := s.checkRequiredResources(); checkErr != nil {
-		log.Error(checkErr)
+		zap.S().Error(checkErr)
 		os.Exit(1)
 
 	}
@@ -454,7 +454,7 @@ func (s *Supervisor) Reload() (addedGroup []string, changedGroup []string, remov
 	}
 	removedPrograms := util.Sub(prevPrograms, loadedPrograms)
 	for _, removedProg := range removedPrograms {
-		log.WithFields(log.Fields{"program": removedProg}).Info("the program is removed and will be stopped")
+		zap.S().Infow("the program is removed and will be stopped", "program", removedProg)
 		s.config.RemoveProgram(removedProg)
 		proc := s.procMgr.Remove(removedProg)
 		if proc != nil {
@@ -571,9 +571,8 @@ func (s *Supervisor) setSupervisordInfo() {
 			logfileBackups := supervisordConf.GetInt("logfileBackups", 10)
 			loglevel := supervisordConf.GetString("loglevel", "info")
 			s.logger = logger.NewLogger("supervisord", logFile, &sync.Mutex{}, logfileMaxbytes, logfileBackups, logEventEmitter)
-			log.SetLevel(toLogLevel(loglevel))
-			log.SetFormatter(&log.TextFormatter{DisableColors: true, FullTimestamp: true})
-			log.SetOutput(s.logger)
+			core := zapcore.NewCore(zapcore.NewConsoleEncoder(zap.NewDevelopmentEncoderConfig()), zapcore.AddSync(s.logger), toLogLevel(loglevel))
+			zap.ReplaceGlobals(zap.New(core))
 		}
 		//set the pid
 		pidfile, err := env.Eval(supervisordConf.GetString("pidfile", "supervisord.pid"))
@@ -587,35 +586,35 @@ func (s *Supervisor) setSupervisordInfo() {
 	}
 }
 
-func toLogLevel(level string) log.Level {
+func toLogLevel(level string) zapcore.Level {
 	switch strings.ToLower(level) {
 	case "critical":
-		return log.FatalLevel
+		return zapcore.FatalLevel
 	case "error":
-		return log.ErrorLevel
+		return zapcore.ErrorLevel
 	case "warn":
-		return log.WarnLevel
+		return zapcore.WarnLevel
 	case "info":
-		return log.InfoLevel
+		return zapcore.InfoLevel
 	default:
-		return log.DebugLevel
+		return zapcore.DebugLevel
 	}
 }
 
 // ReloadConfig reload the supervisor configuration file
 func (s *Supervisor) ReloadConfig(r *http.Request, args *struct{}, reply *types.ReloadConfigResult) error {
-	log.Info("start to reload config")
+	zap.S().Info("start to reload config")
 	addedGroup, changedGroup, removedGroup, err := s.Reload()
 	if len(addedGroup) > 0 {
-		log.WithFields(log.Fields{"groups": strings.Join(addedGroup, ",")}).Info("added groups")
+		zap.S().Infow("added groups", "groups", strings.Join(addedGroup, ","))
 	}
 
 	if len(changedGroup) > 0 {
-		log.WithFields(log.Fields{"groups": strings.Join(changedGroup, ",")}).Info("changed groups")
+		zap.S().Infow("changed groups", "groups", strings.Join(changedGroup, ","))
 	}
 
 	if len(removedGroup) > 0 {
-		log.WithFields(log.Fields{"groups": strings.Join(removedGroup, ",")}).Info("removed groups")
+		zap.S().Infow("removed groups", "groups", strings.Join(removedGroup, ","))
 	}
 	reply.AddedGroup = addedGroup
 	reply.ChangedGroup = changedGroup

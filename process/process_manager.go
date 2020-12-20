@@ -2,11 +2,11 @@ package process
 
 import (
 	"fmt"
+	"go.uber.org/zap"
 	"strings"
 	"sync"
 
 	"github.com/ochinchina/supervisord/config"
-	log "github.com/sirupsen/logrus"
 )
 
 // Manager manage all the process in the supervisor
@@ -54,7 +54,7 @@ func (pm *Manager) createProgram(supervisorID string, config *config.Entry) *Pro
 		proc = NewProcess(supervisorID, config)
 		pm.procs[procName] = proc
 	}
-	log.Info("create process:", procName)
+	zap.S().Info("create process:", procName)
 	return proc
 }
 
@@ -67,7 +67,7 @@ func (pm *Manager) createEventListener(supervisorID string, config *config.Entry
 		evtListener = NewProcess(supervisorID, config)
 		pm.eventListeners[eventListenerName] = evtListener
 	}
-	log.Info("create event listener:", eventListenerName)
+	zap.S().Info("create event listener:", eventListenerName)
 	return evtListener
 }
 
@@ -76,7 +76,7 @@ func (pm *Manager) Add(name string, proc *Process) {
 	pm.lock.Lock()
 	defer pm.lock.Unlock()
 	pm.procs[name] = proc
-	log.Info("add process:", name)
+	zap.S().Info("add process:", name)
 }
 
 // Remove remove the process from the manager
@@ -90,7 +90,7 @@ func (pm *Manager) Remove(name string) *Process {
 	defer pm.lock.Unlock()
 	proc, _ := pm.procs[name]
 	delete(pm.procs, name)
-	log.Info("remove process:", name)
+	zap.S().Info("remove process:", name)
 	return proc
 }
 
@@ -130,7 +130,7 @@ func (pm *Manager) FindMatch(name string) []*Process {
 		}
 	}
 	if len(result) <= 0 {
-		log.Info("fail to find process:", name)
+		zap.S().Info("fail to find process:", name)
 	}
 	return result
 }
